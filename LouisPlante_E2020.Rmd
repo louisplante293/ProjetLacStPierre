@@ -1,0 +1,442 @@
+---
+title: "Retour sur la procédure d'analyse Grenier"
+author: "Louis Plante /// Plal3403@USherbrooke.ca"
+date: "Été 2020"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    theme: readable
+---
+
+
+# Préambule et mise en place de l'environnement R
+
+Le script donnant lieu aux résultats présentés par ce document fonctionne avec le langage de programmation **R** v. 3.6.2 et a recourt aux libraries **vegan** v.2.5.6 et **tidyverse** v.1.3.0. Il est à noter que la majeure partie du script est cachée afin d'alléger le document et que seulement les fonctions les plus importantes à l'analyse sont présentées. L'entièreté du script est disponible et sera joint avec ce document.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+rm(list=ls())
+setwd("~/Été 2020/Donnees_CABIN")
+set.seed(1967)
+
+# Call packages
+if(!require(vegan)){install.packages("vegan")}
+require(vegan)
+if(!require(tidyverse)){install.packages("tidyverse")}
+require(tidyverse)
+if(!require(ggpubr)){install.packages("ggpubr")}
+require(ggpubr)
+#Import .csv data
+benthic <- read.csv("Benthic.csv", header=T, sep=";", dec=",")
+env <- read.csv("Environnement.csv", header=T, sep=";", dec=",")
+indices <- read.csv("Indices_COMPLET.csv", header=T)
+```
+
+```{r echo=TRUE}
+### Préparation des données benthiques ###
+# Retrait des colonnes relatives à l'échantillonnage
+benthicRAW <- benthic %>%
+  select(-c(SampleId, SampleDate, biotype, Year, Site))
+
+i_benthic <- nrow(benthicRAW)
+j_benthic <- ncol(benthicRAW)
+
+#Replacing NA values with 0 in the taxa columns
+for (i in 1:i_benthic){
+  for (j in 1:j_benthic){
+    if (is.na(benthicRAW[i, j])){
+      benthicRAW[i, j] <- 0
+    }
+  }
+}
+
+### Préparation des données environnementales ###
+# Retrait des colonnes relatives à l'échantillonnage
+EnvClean <- env %>% 
+  select(-SampleId, -Types.station,-Site, -SampleDate,   -RefAlt, -Annee, 
+         -Jour.julien, -lattitude, -longitude, -Veg_Dom)
+
+# Retrait des colonnes dont la variance = 0
+EnvClean <- EnvClean[,apply(EnvClean, 2, var, na.rm=TRUE) != 0]
+
+# Standardisation des données
+EnvSTAND <- data.frame(scale(EnvClean, center = TRUE, scale = TRUE))
+
+### Préparation des données métriques ###
+# Retrait des colonnes inutilisées
+Ind_CLEAN <- indices %>%
+  select(-c(SampleId, X, POUR_Erpob))
+
+# Standardisation
+Ind_STAND2 <- data.frame(scale(Ind_CLEAN, center = TRUE, scale = TRUE))
+```
+
+# Regroupement des stations en biotypes
+
+```{r echo=TRUE}
+# Transformation des données biologiques dans un but de linéarisation
+HellTrans <- decostand(benthicRAW, method="hellinger")
+
+# Regroupement par K-moyennes
+Cluster_analysis <- cascadeKM(HellTrans, inf.gr=2, sup.gr=10, iter = 100, criterion = "calinski")
+
+# Selection du nombre optimal de groupe, ici 4
+PartitionK <- data.frame(Cluster_analysis$partition[,3])
+names(PartitionK) <- "Biotype"
+
+# Analyse en composantes principales (ACP)
+PCA_spe <- rda(HellTrans)
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=7}
+#alternate PCA plot
+BiotypesNamesK <- data.frame(matrix(nrow=i_benthic, ncol=1))
+
+for(i in 1:(i_benthic)){
+    BiotypesNamesK[i,1] <- paste("Biotype", PartitionK[i,1], sep=" ") 
+  }
+PCAplotKDF <- data.frame(scores(PCA_spe, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK, benthic$Site, benthic$Year)
+names(PCAplotKDF) <- c("PC1", "PC2", "Biotype", "Site", "Year")
+
+PCAplotKDF <- PCAplotKDF[order(PCAplotKDF$Site, PCAplotKDF$Year),]
+
+FIGURE1 <- ggplot(PCAplotKDF, aes(x=PC1, y=PC2)) + 
+   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+   geom_point(size=4, shape=21,  aes(bg=Biotype), stroke=0.5, color="white") +
+   stat_ellipse(aes(group=Biotype, color=Biotype), size=1,type="t", level=0.95)+
+   labs(x=paste("PC1 (", round((PCA_spe$CA$eig[1]/sum(PCA_spe$CA$eig))*100,2), "%)", sep=""), y=paste("PC2 (", round((PCA_spe$CA$eig[2]/sum(PCA_spe$CA$eig))*100,2), "%)", sep="")) +
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "color")+
+  theme(legend.position = "bottom", 
+                  panel.border = element_rect(colour="black", fill="NA"),
+                panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill = "white"),
+       aspect.ratio=1)
+
+FIGURE1 
+```
+
+### Analyse de tendance
+
+Ici, j'utilise seulement les stations visitées plus qu'une fois.
+
+```{r}
+compte <- benthic %>%
+  group_by(Site) %>%
+  count() %>%
+  filter(n > 1)
+  
+BD_plus1 <- benthic %>%
+  filter(Site %in% compte$Site)
+
+BD_plus1RAW <- BD_plus1 %>% 
+  select(-c(SampleId, SampleDate, biotype, Year, Site))
+
+BD_plus1RAW[is.na(BD_plus1RAW)] <- 0
+
+BD_plus1RAW <- BD_plus1RAW[,apply(BD_plus1RAW, 2, var, na.rm=TRUE) != 0]
+
+BD_plus1_Hell <-decostand(BD_plus1RAW, method="hellinger")
+PCA_Station_plus1 <- rda(BD_plus1_Hell)
+
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=7}
+PCAplotKDF <- data.frame(scores(PCA_Station_plus1, display="sites", choices=c(1,2), scaling=2), BD_plus1$Site, BD_plus1$Year)
+names(PCAplotKDF) <- c("PC1", "PC2", "Site", "Year")
+
+PCAplotKDF <- PCAplotKDF[order(PCAplotKDF$Site, PCAplotKDF$Year),]
+
+FIGURE2 <- ggplot(PCAplotKDF, aes(x=PC1, y=PC2)) + 
+   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+   geom_path(aes(group=Site, color=Site))+
+   geom_point(size=5, shape=19, aes(color=Site)) +
+  geom_text(aes(x=PC1, y=PC2, label=Year), size=3, fontface="bold", nudge_y = 0.035)+
+   labs(x=paste("PC1 (", round((PCA_Station_plus1$CA$eig[1]/sum(PCA_Station_plus1$CA$eig))*100,2), "%)", sep=""), y=paste("PC2 (", round((PCA_Station_plus1$CA$eig[2]/sum(PCA_Station_plus1$CA$eig))*100,2), "%)", sep=""),color="") +
+  #scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  #scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "color")+
+  theme(#legend.position = "bottom",
+        panel.border = element_rect(colour="black", fill="NA"),
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.background = element_rect(fill = "white"),
+        legend.key = element_rect(fill = "white"),
+        legend.position = c(.07, .90),
+        legend.background = element_rect(fill = "white"),
+        aspect.ratio=1,
+        legend.margin=margin(t = -0.5, unit='cm'))
+
+FIGURE2 
+```
+
+### Analyse sur gradient direct
+
+Ici, nous réalisons une ordination contrainte, de façon à placer les points dans l'espace d'ordination avec la contrainte de certaines variables environnementales. Ceci nous permettra de mieux comprendre comme les biotype définis plus haut se placent sur certains gradient environnementaux. Il existe plusieurs types d'ordination contraintes, ici, nous avons recourt à l'ACR, qui est un prolongement de l'APC utilisé plus haut.
+
+Pour simplifier l'interprétation des ACR, nous avons réalisé une ACR avec des variables physico-chimiques, et une ACR avec des variables liés à l'habitat et étant donné la quantité de variables environnementales disponibles, nous avons opté pour une sélection progressive via *ordiR2step* du package **vegan**. Pour faire simple,  
+
+```{r}
+### Nous réaliserons une ACR par classe de variables, soit physico-chimique et habitat ###
+# Variables physico-chimiques
+env_physical <- EnvSTAND %>% 
+  select(Alcalinité_tot, C_org_diss, 
+         Chlorophylle, Nitrites_nitrates, 
+         P_total_diss, Turbidité, 
+         Conductivité, Oxygène_dissout, 
+         pH, Température_de_leau_en_surface, 
+         C_ORG, As, Cr, Cu, 
+         Hg.tot, Pb, Facies, Fl,  
+         Sd, Sf, Sl, SlNaP, 
+         Ap, Classe_CABIN, Phi_moyen)
+
+# Variables d'habitat
+env_habitat <- EnvSTAND %>% 
+  select(Erosion, POURriveNaturelle, 
+          Niveau_E, Niveau_H,
+         Niveau_moins_01, Niveau_moins_14, 
+         Invertébrés_Benthiques, Amplitude_saisonnière_moyenne, 
+         POURlimon, POURargille, 
+         Non_classé, Eau_peu_profonde, 
+         Sol_nu, Bas_marais, 
+         Haut_marais, Marécage_arbustif, 
+         Marécage_arboré, Forêt, 
+         Zone_bâtie, NumP, 
+         Diversité_habitat, Émergentes, 
+         Flottantes, Submergées, 
+           BOLFL, BUTUM, ACOCA,BIDBE,ELOCA,
+          LYTSA, MYRGA, MYRSP, 
+         PHRAU, SAGLA, SAGRI,SALEX, 
+         SCHPU, SCILA, TYPAN, TYPLA, 
+         VALAM, ZIZAQ, ZIZPA)
+
+### Sélection vers l'avant (forward) pour chaque classe de variables ###
+# Modèles de base incluant toutes les variables disponibles
+RDA_PHY_BASE <- rda(HellTrans ~ ., data=env_physical)
+RDA_HAB_BASE <- rda(HellTrans ~ ., data=env_habitat)
+
+# Sélection forward
+Forward_physique <- ordiR2step(rda(HellTrans~1, data=env_physical), scope= formula(RDA_PHY_BASE), direction= "forward", R2scope=TRUE, pstep=1000, trace=FALSE)
+
+Forward_habitat <- ordiR2step(rda(HellTrans~1, data=env_habitat), scope= formula(RDA_HAB_BASE), direction= "forward", R2scope=TRUE, pstep=1000, trace=FALSE)
+
+```
+
+Il est possible d'accéder au résumé de la sélection de modèle
+
+```{r}
+Forward_physique$anova
+```
+
+```{r}
+Forward_habitat$anova
+```
+
+```{r}
+# ACR finales suite à la sélection forward
+RDA_FINAL_PHY <- eval(Forward_physique$call)
+RDA_FINAL_HAB <- eval(Forward_habitat$call)
+
+# R carré ajusté pour les deux modèles
+(R2adj_PHY <- RsquareAdj(RDA_FINAL_PHY)$adj.r.squared)
+(R2adj_HAB <- RsquareAdj(RDA_FINAL_HAB)$adj.r.squared)
+```
+
+```{r}
+# Significativité des axes de l'ACR physico-chimique
+anova.cca(RDA_FINAL_PHY, step=1000, by="axis")
+```
+```{r}
+# Significativité des axes de l'ACR habitat
+anova.cca(RDA_FINAL_HAB, step=1000, by="axis")
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=7}
+# Graphique d'ACR physico-chimique
+BiotypesNamesK <- data.frame(matrix(nrow=i_benthic, ncol=1))
+
+for (i in 1:i_benthic){
+  BiotypesNamesK[i,1] <- paste("Biotype", PartitionK[i,1], sep=" ") 
+}
+
+RDAplotKDF <- data.frame(scores(RDA_FINAL_PHY, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK)
+names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
+
+RDAarrows <- data.frame(scores(RDA_FINAL_PHY, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_FINAL_PHY, display="bp", choices=c(2), scaling=2))) 
+
+names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
+
+#RDAarrows$Variable <- c("P total\ndissout", "Turbidité", "Température\nsurface", "Oxygène\ndissout")
+
+FIGURE2A <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+  geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow=arrow(), size=0.75) + 
+  labs(x="RDA1***", 
+       y="RDA 2***",
+       caption="R2adj = 0.13") +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  theme(legend.position = "none", 
+        panel.border = element_rect(colour="black", fill=NA), 
+        panel.background = element_rect(fill="white"),
+       aspect.ratio=1)
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=7}
+RDAplotKDF <- data.frame(scores(RDA_FINAL_HAB, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK)
+names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
+
+RDAarrows <- data.frame(scores(RDA_FINAL_HAB, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_FINAL_HAB, display="bp", choices=c(2), scaling=2))) 
+names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
+#RDAarrows$Variable <- c("Niveau Été","Niveau 14 jours", "Émergentes", "Amplitude saisonnière\nmoyenne", "Haut Marais", "Rive\nNaturelle (%)")
+
+
+FIGURE2B <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+  geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow=arrow(), size=0.75) + 
+  labs(x="RDA1***", 
+       y="RDA2**",
+       caption="R2adj = 0.13") +
+  geom_text(data=RDAarrows, aes(x=(1.25*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  theme(legend.position = "none",
+        panel.border = element_rect(colour="black", fill=NA), 
+        panel.background = element_rect(fill="white"),
+       aspect.ratio=1)
+```
+
+```{r}
+# Les mêmes ACR mais en corrigeant pour l'année d'échantillonnage
+
+RDA_PHY_ANNEE <- rda(formula = HellTrans ~ P_total_diss + Turbidité + Température_de_leau_en_surface + 
+    Oxygène_dissout + Condition(benthic$Year), data = env_physical)
+
+RDA_HAB_ANNEE <-rda(formula = HellTrans ~ Niveau_E + Niveau_moins_14 + Émergentes + 
+    Amplitude_saisonnière_moyenne + Haut_marais + POURriveNaturelle + Condition(benthic$Year), 
+    data = env_habitat)
+```
+
+```{r include=FALSE}
+RDAplotKDF <- data.frame(scores(RDA_PHY_ANNEE, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK)
+names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
+
+RDAarrows <- data.frame(scores(RDA_PHY_ANNEE, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_PHY_ANNEE, display="bp", choices=c(2), scaling=2))) 
+
+names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
+RDAarrows$Variable <- c("P total\ndissout", "Turbidité", "Température\nsurface", "Oxygène\ndissout")
+
+FIGURE2C <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+  geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow=arrow(), size=0.75) + 
+  labs(x="RDA1***", 
+       y="RDA 2**",
+       caption = "R2adj = 0.11") +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  theme(legend.position = "none", 
+        panel.border = element_rect(colour="black", fill=NA), 
+        panel.background = element_rect(fill="white"),
+       aspect.ratio=1)
+```
+
+```{r include=FALSE}
+RDAplotKDF <- data.frame(scores(RDA_HAB_ANNEE, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK)
+names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
+
+RDAarrows <- data.frame(scores(RDA_HAB_ANNEE, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_HAB_ANNEE, display="bp", choices=c(2), scaling=2))) 
+
+names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
+RDAarrows$Variable <- c("Niveau Été","Niveau 14 jours", "Émergentes", "Amplitude saisonnière\nmoyenne", "Haut Marais", "Rive\nNaturelle (%)")
+
+FIGURE2D <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
+  geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+  geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
+  scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow=arrow(), size=0.75) + 
+  labs(x="RDA1***", 
+       y="RDA 2",
+       caption ="R2adj = 0,11") +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  theme(panel.border = element_rect(colour="black", fill=NA), 
+        panel.background = element_rect(fill="white"),
+       aspect.ratio=1)
+```
+
+```{r include=FALSE}
+FIGURE2NOTITLE <- ggarrange(FIGURE2A,FIGURE2B, FIGURE2C, FIGURE2D,
+          ncol=2, nrow=2,
+          common.legend = TRUE, 
+          legend="bottom", 
+          labels=c("A)", "B)", "C)", "D)"))
+```
+
+Je corrige pour les années dans les figures C) et D).
+
+```{r fig.height=10, fig.width=10}
+FIGURE2NOTITLE
+```
+
+
+
+
+# Utilisation de métriques 
+
+À l'automne 2019, le temps avait manqué pour approfondir l'utilisation des métriques afin d'évaluer la condition des stations CABIN. Ici, je réalise une ACP en utilisant les données de métriques, eux-même dérivés des données biologiques et en gardant les Biotypes établis plus haut pour colorer les points de l'ACP, nous serons en mesure d'évaluer si certains métriques peuvent être utiles afin d'identifier des stations plus perturbées. 
+
+```{r include=FALSE}
+#Data cleanup and standardization
+Ind_CLEAN <- indices %>%
+  select(-c(SampleId, X, POUR_Erpob))
+
+Ind_STAND <- Ind_CLEAN
+
+for(i in 1:ncol(Ind_STAND)){
+  Ind_STAND[,i] <- Ind_STAND[,i]/max(Ind_STAND[,i])
+}
+
+# Analyse en composantes principales (ACP)
+PCA_Ind <- rda(Ind_STAND2)
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=7}
+#alternate plotting option
+
+PCAindDF <- data.frame(scores(PCA_Ind, display="sites", choices=c(1,2), scaling=2), BiotypesNamesK)
+names(PCAindDF) <- c("PC1", "PC2", "Biotype")
+
+PcaIndTxtDf <- data.frame(scores(PCA_Ind, display="species", choices=c(1,2), scaling=2), rownames(scores(PCA_Ind, display="species", scaling=2)))
+names(PcaIndTxtDf) <- c("PC1", "PC2", "Metrics")
+
+FIGURE10 <- ggplot(PCAindDF, aes(x=PC1, y=PC2)) + 
+   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
+   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
+   scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg") +
+   geom_point(size=4, shape=21, aes(bg=Biotype), color="white", stroke=0.5) +
+   geom_text(data=PcaIndTxtDf, aes(x=PC1, y=PC2, label=Metrics), size=3, fontface="bold", color="black", nudge_y = 0.15)+
+   geom_point(data=PcaIndTxtDf, aes(x=PC1, y=PC2), color="orange", shape=17, size=2)+
+   labs(bg="",x=paste("PC1 (", round((PCA_Ind$CA$eig[1]/sum(PCA_Ind$CA$eig))*100,2), "%)", sep=""), y=paste("PC2 (", round((PCA_Ind$CA$eig[2]/sum(PCA_Ind$CA$eig))*100,2), "%)", sep="")) +
+   theme(legend.position = "bottom", 
+        panel.border = element_rect(colour="black", fill=NA),
+        panel.background = element_rect(fill="white"),
+       aspect.ratio=1,
+       legend.key = element_rect(fill = "white", color="black"))
+FIGURE10
+```
+
+Pour clarifier l'interprétation de la figure, les triangles rouges représentent la position exacte des métriques sur les deux premiers axes de l'ACP. Le titre de chaque métrique est inscrit en haut du triangle correspondant. Ici, il est difficile de voir si certains métriques agissent comme prédicteur d'un ou plusieurs Biotypes. Effectivement, on voit que les stations CABIN sont distribuées dans l'espace sans réelle structure, en d'autres mots, nonobstant leur Biotype. Ceci peut être dû à plusieurs facteurs. D'une part, cette dernière ACP utilise un grand nombre de métrique différent. Il peut donc devenir difficile de tirer des conclusions sur quel métrique s'associe à un Biotype. De façon plus importante, il est clair que la structure dans les données biologiques est différente de celle dans les données de métriques. Ceci est probablement dû au fait que les métriques sélectionnés ne capturent pas, à travers leur formule mathématique, la variabilité entre les assemblages de macroinvertébrés.     
+
