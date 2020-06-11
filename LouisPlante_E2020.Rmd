@@ -16,7 +16,7 @@ Le script donnant lieu aux résultats présentés par ce document fonctionne ave
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 rm(list=ls())
-setwd("~/Été 2020/Donnees_CABIN")
+setwd("C:/Users/Louis Plante/Desktop/ProjetLacStPierre")
 set.seed(1967)
 
 # Call packages
@@ -241,18 +241,42 @@ Forward_habitat$anova
 RDA_FINAL_PHY <- eval(Forward_physique$call)
 RDA_FINAL_HAB <- eval(Forward_habitat$call)
 
+# Mêmes ACR mais en corrigeant pour l'année
+RDA_PHY_ANNEE <- rda(formula = HellTrans ~ P_total_diss + Température_de_leau_en_surface + 
+    Oxygène_dissout + Nitrites_nitrates + Conductivité + Ap + Condition(benthic$Year), data = env_physical)
+
+RDA_HAB_ANNEE <-rda(formula = HellTrans ~ Niveau_E + Niveau_moins_14 + Émergentes + 
+    Amplitude_saisonnière_moyenne + Haut_marais + POURriveNaturelle + Condition(benthic$Year), 
+    data = env_habitat)
+
 # R carré ajusté pour les deux modèles
-(R2adj_PHY <- RsquareAdj(RDA_FINAL_PHY)$adj.r.squared)
-(R2adj_HAB <- RsquareAdj(RDA_FINAL_HAB)$adj.r.squared)
+R2adj_PHY <- RsquareAdj(RDA_FINAL_PHY)$adj.r.squared
+R2adj_HAB <- RsquareAdj(RDA_FINAL_HAB)$adj.r.squared
+R2adj_PHY_annee <- RsquareAdj(RDA_PHY_ANNEE)$adj.r.squared
+R2adj_HAB_annee <- RsquareAdj(RDA_HAB_ANNEE)$adj.r.squared
+
 ```
 
 ```{r}
 # Significativité des axes de l'ACR physico-chimique
-anova.cca(RDA_FINAL_PHY, step=1000, by="axis")
-```
-```{r}
-# Significativité des axes de l'ACR habitat
-anova.cca(RDA_FINAL_HAB, step=1000, by="axis")
+anova_rdaPHY <- anova.cca(RDA_FINAL_PHY, step=1000, by="axis")
+anova_rdaHAB <- anova.cca(RDA_FINAL_HAB, step=1000, by="axis")
+anova_rdaPHY_annee <- anova.cca(RDA_PHY_ANNEE, step=1000, by="axis")
+anova_rdaHAB_annee <- anova.cca(RDA_HAB_ANNEE, step=1000, by="axis")
+
+# Fonction pour extraire la significativité pour chaque axe
+# object est un objet issue de la fonction anova.cca du package vegan
+sign_ordi <- function(object, axe){
+  if(object$'Pr(>F)'[axe] <= 0.001){
+    paste("***")
+  } else if(0.001 < object$'Pr(>F)'[axe] & object$'Pr(>F)'[axe]<= 0.01){
+    paste("**")
+  } else if(0.01 < object$'Pr(>F)'[axe] & object$'Pr(>F)'[axe] <= 0.05){
+    paste("*")
+  } else if(object$'Pr(>F)'[axe] > 0.05){
+    paste("(NON SIGNIFICATIF)")
+  }
+}
 ```
 
 ```{r echo=FALSE, fig.height=7, fig.width=7}
@@ -279,10 +303,10 @@ FIGURE2A <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) +
   scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
   geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
                arrow=arrow(), size=0.75) + 
-  labs(x="RDA1***", 
-       y="RDA 2***",
-       caption="R2adj = 0.13") +
-  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  labs(x=paste("RDA1", sign_ordi(anova_rdaPHY, 1), sep=" "), 
+       y=paste("RDA2", sign_ordi(anova_rdaPHY, 2), sep=" "),
+       caption=paste("R2adj = ", round(R2adj_PHY, 2))) +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3,color="dodgerblue", fontface="bold") +
   theme(legend.position = "none", 
         panel.border = element_rect(colour="black", fill=NA), 
         panel.background = element_rect(fill="white"),
@@ -297,7 +321,6 @@ RDAarrows <- data.frame(scores(RDA_FINAL_HAB, display="bp", choices=c(1,2), scal
 names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
 #RDAarrows$Variable <- c("Niveau Été","Niveau 14 jours", "Émergentes", "Amplitude saisonnière\nmoyenne", "Haut Marais", "Rive\nNaturelle (%)")
 
-
 FIGURE2B <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
@@ -305,25 +328,14 @@ FIGURE2B <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) +
   scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
   geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
                arrow=arrow(), size=0.75) + 
-  labs(x="RDA1***", 
-       y="RDA2**",
-       caption="R2adj = 0.13") +
-  geom_text(data=RDAarrows, aes(x=(1.25*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  labs(x=paste("RDA1", sign_ordi(anova_rdaHAB, 1), sep=" "), 
+       y=paste("RDA2", sign_ordi(anova_rdaHAB, 2), sep=" "),
+       caption=paste("R2adj = ", round(R2adj_HAB, 2))) +
+  geom_text(data=RDAarrows, aes(x=(1.25*RDA1), y=(1.1*RDA2),  label = Variable),color="dodgerblue", size=3, fontface="bold") +
   theme(legend.position = "none",
         panel.border = element_rect(colour="black", fill=NA), 
         panel.background = element_rect(fill="white"),
        aspect.ratio=1)
-```
-
-```{r}
-# Les mêmes ACR mais en corrigeant pour l'année d'échantillonnage
-
-RDA_PHY_ANNEE <- rda(formula = HellTrans ~ P_total_diss + Turbidité + Température_de_leau_en_surface + 
-    Oxygène_dissout + Condition(benthic$Year), data = env_physical)
-
-RDA_HAB_ANNEE <-rda(formula = HellTrans ~ Niveau_E + Niveau_moins_14 + Émergentes + 
-    Amplitude_saisonnière_moyenne + Haut_marais + POURriveNaturelle + Condition(benthic$Year), 
-    data = env_habitat)
 ```
 
 ```{r include=FALSE}
@@ -333,19 +345,18 @@ names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
 RDAarrows <- data.frame(scores(RDA_PHY_ANNEE, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_PHY_ANNEE, display="bp", choices=c(2), scaling=2))) 
 
 names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
-RDAarrows$Variable <- c("P total\ndissout", "Turbidité", "Température\nsurface", "Oxygène\ndissout")
+#RDAarrows$Variable <- c("P total\ndissout", "Turbidité", "Température\nsurface", "Oxygène\ndissout")
 
 FIGURE2C <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
   geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
   scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
-  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
-               arrow=arrow(), size=0.75) + 
-  labs(x="RDA1***", 
-       y="RDA 2**",
-       caption = "R2adj = 0.11") +
-  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), arrow=arrow(), size=0.75) + 
+  labs(x=paste("RDA1", sign_ordi(anova_rdaPHY_annee, 1), sep=" "), 
+       y=paste("RDA2", sign_ordi(anova_rdaPHY_annee, 2), sep=" "),
+       caption=paste("R2adj = ", round(R2adj_PHY_annee, 2))) +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable),color="dodgerblue", size=3, fontface="bold") +
   theme(legend.position = "none", 
         panel.border = element_rect(colour="black", fill=NA), 
         panel.background = element_rect(fill="white"),
@@ -359,19 +370,18 @@ names(RDAplotKDF) <- c("RDA1", "RDA2", "Biotype")
 RDAarrows <- data.frame(scores(RDA_HAB_ANNEE, display="bp", choices=c(1,2), scaling=2), rownames(scores(RDA_HAB_ANNEE, display="bp", choices=c(2), scaling=2))) 
 
 names(RDAarrows) <- c("RDA1", "RDA2", "Variable")
-RDAarrows$Variable <- c("Niveau Été","Niveau 14 jours", "Émergentes", "Amplitude saisonnière\nmoyenne", "Haut Marais", "Rive\nNaturelle (%)")
+#RDAarrows$Variable <- c("Niveau Été","Niveau 14 jours", "Émergentes", "Amplitude saisonnière\nmoyenne", "Haut Marais", "Rive\nNaturelle (%)")
 
 FIGURE2D <- ggplot(RDAplotKDF, aes(x=RDA1, y=RDA2)) + 
   geom_hline(yintercept=0, linetype="dashed", color = "black", size=0.5) +
   geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
   geom_point(aes(bg=Biotype),size=3, shape=21, color="white", stroke=0.5) +
   scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg")+
-  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
-               arrow=arrow(), size=0.75) + 
-  labs(x="RDA1***", 
-       y="RDA 2",
-       caption ="R2adj = 0,11") +
-  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, fontface="bold") +
+  geom_segment(data=RDAarrows,aes(x = 0, y = 0, xend = RDA1, yend = RDA2), arrow=arrow(), size=0.75) + 
+  labs(x=paste("RDA1", sign_ordi(anova_rdaHAB_annee, 1), sep=" "), 
+       y=paste("RDA2", sign_ordi(anova_rdaHAB_annee, 2), sep=" "),
+       caption=paste("R2adj = ", round(R2adj_HAB_annee, 2))) +
+  geom_text(data=RDAarrows, aes(x=(1.2*RDA1), y=(1.1*RDA2),  label = Variable), size=3, color="dodgerblue", fontface="bold") +
   theme(panel.border = element_rect(colour="black", fill=NA), 
         panel.background = element_rect(fill="white"),
        aspect.ratio=1)
@@ -427,8 +437,8 @@ FIGURE10 <- ggplot(PCAindDF, aes(x=PC1, y=PC2)) +
    geom_vline(xintercept = 0, linetype="dashed", color = "black", size=0.5)+
    scale_colour_manual(values=c("black","magenta","grey70","chartreuse"), aesthetics = "bg") +
    geom_point(size=4, shape=21, aes(bg=Biotype), color="white", stroke=0.5) +
-   geom_text(data=PcaIndTxtDf, aes(x=PC1, y=PC2, label=Metrics), size=3, fontface="bold", color="black", nudge_y = 0.15)+
-   geom_point(data=PcaIndTxtDf, aes(x=PC1, y=PC2), color="orange", shape=17, size=2)+
+   geom_point(data=PcaIndTxtDf, aes(x=PC1, y=PC2), color="dodgerblue", shape=17, size=2)+
+   geom_text(data=PcaIndTxtDf, aes(x=PC1, y=PC2, label=Metrics), size=3, fontface="bold", color="black", nudge_y =    0.15)+
    labs(bg="",x=paste("PC1 (", round((PCA_Ind$CA$eig[1]/sum(PCA_Ind$CA$eig))*100,2), "%)", sep=""), y=paste("PC2 (", round((PCA_Ind$CA$eig[2]/sum(PCA_Ind$CA$eig))*100,2), "%)", sep="")) +
    theme(legend.position = "bottom", 
         panel.border = element_rect(colour="black", fill=NA),
@@ -438,5 +448,5 @@ FIGURE10 <- ggplot(PCAindDF, aes(x=PC1, y=PC2)) +
 FIGURE10
 ```
 
-Pour clarifier l'interprétation de la figure, les triangles rouges représentent la position exacte des métriques sur les deux premiers axes de l'ACP. Le titre de chaque métrique est inscrit en haut du triangle correspondant. Ici, il est difficile de voir si certains métriques agissent comme prédicteur d'un ou plusieurs Biotypes. Effectivement, on voit que les stations CABIN sont distribuées dans l'espace sans réelle structure, en d'autres mots, nonobstant leur Biotype. Ceci peut être dû à plusieurs facteurs. D'une part, cette dernière ACP utilise un grand nombre de métrique différent. Il peut donc devenir difficile de tirer des conclusions sur quel métrique s'associe à un Biotype. De façon plus importante, il est clair que la structure dans les données biologiques est différente de celle dans les données de métriques. Ceci est probablement dû au fait que les métriques sélectionnés ne capturent pas, à travers leur formule mathématique, la variabilité entre les assemblages de macroinvertébrés.     
+Pour clarifier l'interprétation de la figure, les triangles rouges représentent la position exacte des métriques sur les deux premiers axes de l'ACP. Le titre de chaque métrique est inscrit en haut du triangle correspondant. Ici, il est difficile de voir si certains métriques agissent comme prédicteur d'un ou plusieurs Biotypes. Effectivement, on voit que les stations CABIN sont distribuées dans l'espace sans réelle structure, en d'autres mots, nonobstant leur Biotype. Ceci peut être dû à plusieurs facteurs. D'une part, cette dernière ACP utilise un grand nombre de métrique différent. Il peut donc devenir difficile de tirer des conclusions sur quel métrique s'associe à un Biotype. De façon plus importante, il est clair que la structure dans les données biologiques est différente de celle dans les données de métriques. Ceci est probablement dû au fait que les métriques sélectionnés ne capturent pas, à travers leur formule mathématique, la variabilité entre les assemblages de macroinvertébrés.    
 
