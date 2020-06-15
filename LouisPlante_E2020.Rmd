@@ -71,6 +71,32 @@ Ind_CLEAN <- indices %>%
 Ind_STAND2 <- data.frame(scale(Ind_CLEAN, center = TRUE, scale = TRUE))
 ```
 
+```{r}
+# Mise en place des fonctions permettant d'extraire les informations pertinentes des PCA/RDA
+
+# "Object" is a rda() object from package vegan;
+# "Axe" is the axis of the ordination, most often 1, 2 or 3.
+VarAxePCA <- function(Object, Axis){
+  paste("PC", Axis, " (", round((Object$CA$eig[Axis]/sum(Object$CA$eig))*100,2), "%)", sep="")
+}
+
+# Object est un objet issue de la fonction anova.cca du package vegan
+# "Axis" is the axis of the RDA
+sign_ordi <- function(Object, Axis){
+  if(Object$'Pr(>F)'[Axis] <= 0.001){
+    paste("***")
+  } else if(0.001 < Object$'Pr(>F)'[Axis] & Object$'Pr(>F)'[Axis]<= 0.01){
+    paste("**")
+  } else if(0.01 < Object$'Pr(>F)'[Axis] & Object$'Pr(>F)'[Axis] <= 0.05){
+    paste("*")
+  } else if(Object$'Pr(>F)'[Axis] > 0.05){
+    paste("(NON SIGNIFICATIF)")
+  }
+}
+
+```
+
+
 # Regroupement des stations en biotypes
 
 ```{r echo=TRUE}
@@ -263,20 +289,6 @@ anova_rdaPHY <- anova.cca(RDA_FINAL_PHY, step=1000, by="axis")
 anova_rdaHAB <- anova.cca(RDA_FINAL_HAB, step=1000, by="axis")
 anova_rdaPHY_annee <- anova.cca(RDA_PHY_ANNEE, step=1000, by="axis")
 anova_rdaHAB_annee <- anova.cca(RDA_HAB_ANNEE, step=1000, by="axis")
-
-# Fonction pour extraire la significativité pour chaque axe
-# object est un objet issue de la fonction anova.cca du package vegan
-sign_ordi <- function(object, axe){
-  if(object$'Pr(>F)'[axe] <= 0.001){
-    paste("***")
-  } else if(0.001 < object$'Pr(>F)'[axe] & object$'Pr(>F)'[axe]<= 0.01){
-    paste("**")
-  } else if(0.01 < object$'Pr(>F)'[axe] & object$'Pr(>F)'[axe] <= 0.05){
-    paste("*")
-  } else if(object$'Pr(>F)'[axe] > 0.05){
-    paste("(NON SIGNIFICATIF)")
-  }
-}
 ```
 
 ```{r echo=FALSE, fig.height=7, fig.width=7}
